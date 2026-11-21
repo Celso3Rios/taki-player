@@ -40,6 +40,7 @@ import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.datasource.DefaultHttpDataSource;
+import androidx.media3.datasource.HttpDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.ui.PlayerView;
@@ -47,6 +48,9 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import java.io.InputStream;
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
+import javax.net.ssl.SSLException;
 import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.List;
@@ -57,6 +61,16 @@ import java.util.concurrent.Executors;
 public final class MainActivity extends Activity implements EntryAdapter.Listener {
     private static final int REQUEST_M3U = 810;
     private static final int PAGE_SIZE = 100;
+    private static final String SAMPLE_VIDEO =
+            "https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
+    private static final String[] NETWORK_PROFILES = {
+            "Android (padrão)", "VLC (compatibilidade)", "Taki Player"
+    };
+    private static final String[] USER_AGENTS = {
+            "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+            "VLC/3.0.21 LibVLC/3.0.21",
+            "TakiPlayer/1.1 Android"
+    };
     private static final Locale PT_BR = new Locale("pt", "BR");
     private static final int[] TAB_TYPES = {
             M3uParser.LIVE, M3uParser.MOVIES, M3uParser.SERIES,
@@ -78,7 +92,9 @@ public final class MainActivity extends Activity implements EntryAdapter.Listene
     private Spinner spinnerCategory;
     private Button btnFavorites, btnImport;
     private ProgressBar progress;
-    private View topPanel, tabsScroll, filterPanel, playerBar;
+    private View playerBar, sidebarPanel, rightPanel;
+    private int networkProfile = 0;
+    private String lastErrorDetail = "Nenhum erro registrado nesta sessão.";
     private FrameLayout videoFrame;
     private MediaEntry playing;
     private String selectedCategory = "";
@@ -134,10 +150,9 @@ public final class MainActivity extends Activity implements EntryAdapter.Listene
         btnImport = findViewById(R.id.btnImport);
         progress = findViewById(R.id.progress);
         videoFrame = findViewById(R.id.videoFrame);
-        topPanel = findViewById(R.id.topPanel);
-        tabsScroll = findViewById(R.id.tabsScroll);
-        filterPanel = findViewById(R.id.filterPanel);
         playerBar = findViewById(R.id.playerBar);
+        sidebarPanel = findViewById(R.id.sidebarPanel);
+        rightPanel = findViewById(R.id.rightPanel);
     }
 
     private void configurePlayer() {
@@ -145,7 +160,7 @@ public final class MainActivity extends Activity implements EntryAdapter.Listene
                 .setAllowCrossProtocolRedirects(true)
                 .setConnectTimeoutMs(15000)
                 .setReadTimeoutMs(25000)
-                .setUserAgent("TakiPlayer/1.0 Android");
+                .setUserAgent(USER_AGENTS[networkProfile]);
         DefaultDataSource.Factory data = new DefaultDataSource.Factory(this, http);
         player = new ExoPlayer.Builder(this)
                 .setMediaSourceFactory(new DefaultMediaSourceFactory(data))
@@ -167,11 +182,17 @@ public final class MainActivity extends Activity implements EntryAdapter.Listene
 
             @Override
             public void onPlayerError(PlaybackException error) {
-                txtPlayerOverlay.setText("Não foi possível reproduzir.\n\n" +
-                        "Verifique sua conexão e a validade do link. " +
-                        "Experimente também a opção VLC.");
+                String summary = summarizeError(error);
+                lastErrorDetail = "Conteúdo: " + (playing == null ? "desconhecido" : playing.name)
+                        + "\nCódigo: " + error.getErrorCodeName()
+                        + "\nDiagnóstico: " + summary
+                        + "\nPerfil: " + NETWORK_PROFILES[networkProfile]
+                        + "\nCausa técnica: " + causeChain(error)
+                        + "\n\nNenhuma URL ou credencial foi incluída neste relatório.";
+                txtPlayerOverlay.setText("Não foi possível reproduzir\n" + summary
+                        + "\n\nToque em Erro para detalhes");
                 txtPlayerOverlay.setVisibility(View.VISIBLE);
-                txtPlayerState.setText("Falha no vídeo: " + error.getErrorCodeName());
+                txtPlayerState.setText(summary);
                 playerView.setKeepScreenOn(false);
             }
 
@@ -201,6 +222,12 @@ public final class MainActivity extends Activity implements EntryAdapter.Listene
         btnImport.setOnClickListener(v -> pickM3u());
         findViewById(R.id.btnFullscreen).setOnClickListener(v -> setFullscreen(!fullscreen));
         findViewById(R.id.btnExternal).setOnClickListener(v -> openInVlc());
+        findViewById(R.id.btnRetry).setOnClickListener(v -> {
+            if (playing != null) onPlay(playing);
+            else Toast.makeText(this, "Selecione um vídeo primeiro", Toast.LENGTH_SHORT).show();
+        });
+        findViewById(R.id.btnCompatibility).setOnClickListener(v -> showNetworkProfiles());
+        findViewById(R.id.btnDiagnostics).setOnClickListener(v -> showDiagnostics());
         btnFavorites.setOnClickListener(v -> {
             favoritesOnly = !favoritesOnly;
             btnFavorites.setText(favoritesOnly ? "★" : "☆");
@@ -314,19 +341,19 @@ public final class MainActivity extends Activity implements EntryAdapter.Listene
             final int type = TAB_TYPES[i];
             boolean active = type == selectedType;
             TextView tab = new TextView(this);
-            tab.setText(TAB_NAMES[i] + "  " + format(counts[type]));
+            tab.setText(TAB_NAMES[i]);
             tab.setTextSize(12);
             tab.setTypeface(null, active ? Typeface.BOLD : Typeface.NORMAL);
             tab.setTextColor(active ? Color.WHITE : getColor(R.color.muted));
             tab.setGravity(Gravity.CENTER);
-            tab.setPadding(dp(12), 0, dp(12), 0);
+            tab.setPadding(dp(10), 0, dp(10), 0);
             GradientDrawable background = new GradientDrawable();
             background.setColor(getColor(active ? R.color.primary_dark : R.color.surface));
             background.setCornerRadius(dp(10));
             background.setStroke(dp(1), getColor(active ? R.color.primary : R.color.stroke));
             tab.setBackground(background);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(37));
+                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(32));
             lp.setMargins(dp(3), 0, dp(3), 0);
             tabsContainer.addView(tab, lp);
             tab.setOnClickListener(v -> {
@@ -429,6 +456,7 @@ public final class MainActivity extends Activity implements EntryAdapter.Listene
     public void onPlay(MediaEntry item) {
         playing = item;
         txtNowPlaying.setText(item.name);
+        lastErrorDetail = "Nenhum erro registrado na última tentativa.";
         txtPlayerState.setText("Conectando ao servidor...");
         txtPlayerOverlay.setVisibility(View.GONE);
         String lower = item.url.toLowerCase(Locale.ROOT);
@@ -443,11 +471,84 @@ public final class MainActivity extends Activity implements EntryAdapter.Listene
             ((InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE))
                     .hideSoftInputFromWindow(editSearch.getWindowToken(), 0);
             editSearch.clearFocus();
-        } catch (Exception ignored) {
-            txtPlayerOverlay.setText("Formato não suportado neste aparelho. Tente abrir no VLC.");
+        } catch (Exception e) {
+            lastErrorDetail = "Falha ao iniciar vídeo: " + e.getClass().getSimpleName()
+                    + "\nNenhuma URL foi incluída no relatório.";
+            txtPlayerOverlay.setText("Falha ao iniciar vídeo. Veja Erro.");
             txtPlayerOverlay.setVisibility(View.VISIBLE);
             txtPlayerState.setText("Não foi possível iniciar o vídeo");
         }
+    }
+
+    private String summarizeError(PlaybackException error) {
+        for (Throwable t = error; t != null; t = t.getCause()) {
+            if (t instanceof HttpDataSource.InvalidResponseCodeException) {
+                int code = ((HttpDataSource.InvalidResponseCodeException) t).responseCode;
+                if (code == 401 || code == 403) return "HTTP " + code + " · acesso recusado pelo servidor";
+                if (code == 404 || code == 410) return "HTTP " + code + " · endereço indisponível";
+                if (code >= 500) return "HTTP " + code + " · falha no servidor de vídeo";
+                return "HTTP " + code + " · resposta inesperada";
+            }
+            if (t instanceof UnknownHostException) return "Servidor não encontrado (DNS)";
+            if (t instanceof SocketTimeoutException) return "Servidor demorou a responder";
+            if (t instanceof SSLException) return "Falha na conexão segura";
+        }
+        String code = error.getErrorCodeName();
+        if (code.contains("DECOD") || code.contains("FORMAT"))
+            return "Formato ou codec não suportado · " + code;
+        if (code.contains("PARSING"))
+            return "Não foi possível interpretar o arquivo · " + code;
+        if (code.contains("NETWORK") || code.contains("IO_"))
+            return "Falha na conexão com o vídeo · " + code;
+        return "Erro de reprodução · " + code;
+    }
+
+    private String causeChain(Throwable t) {
+        StringBuilder text = new StringBuilder();
+        int depth = 0;
+        while (t != null && depth++ < 6) {
+            if (text.length() > 0) text.append(" → ");
+            text.append(t.getClass().getSimpleName());
+            t = t.getCause();
+        }
+        return text.toString(); // Não incluir mensagens contendo URLs/tokens.
+    }
+
+    private void showDiagnostics() {
+        new AlertDialog.Builder(this)
+                .setTitle("Diagnóstico do Taki Player")
+                .setMessage(lastErrorDetail + "\n\nUse o vídeo público para saber se "
+                        + "o mecanismo de reprodução está funcionando neste aparelho.")
+                .setPositiveButton("Copiar", (d, w) -> {
+                    ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    cm.setPrimaryClip(ClipData.newPlainText("Diagnóstico Taki Player", lastErrorDetail));
+                    Toast.makeText(this, "Diagnóstico copiado (sem URL)", Toast.LENGTH_SHORT).show();
+                })
+                .setNeutralButton("Vídeo teste", (d, w) -> onPlay(
+                        new MediaEntry(-1, "Vídeo público de teste", SAMPLE_VIDEO,
+                                "", "", M3uParser.MOVIES, false)))
+                .setNegativeButton("Fechar", null)
+                .show();
+    }
+
+    private void showNetworkProfiles() {
+        new AlertDialog.Builder(this)
+                .setTitle("Compatibilidade de rede")
+                .setSingleChoiceItems(NETWORK_PROFILES, networkProfile, (dialog, which) -> {
+                    dialog.dismiss();
+                    if (networkProfile == which) return;
+                    networkProfile = which;
+                    MediaEntry selected = playing;
+                    if (player != null) {
+                        playerView.setPlayer(null);
+                        player.release();
+                    }
+                    configurePlayer();
+                    Toast.makeText(this, "Perfil: " + NETWORK_PROFILES[which], Toast.LENGTH_SHORT).show();
+                    if (selected != null) onPlay(selected);
+                })
+                .setNegativeButton("Cancelar", null)
+                .show();
     }
 
     @Override
@@ -493,29 +594,23 @@ public final class MainActivity extends Activity implements EntryAdapter.Listene
 
     private void setFullscreen(boolean enable) {
         fullscreen = enable;
-        topPanel.setVisibility(enable ? View.GONE : View.VISIBLE);
+        sidebarPanel.setVisibility(enable ? View.GONE : View.VISIBLE);
         playerBar.setVisibility(enable ? View.GONE : View.VISIBLE);
-        tabsScroll.setVisibility(enable ? View.GONE : View.VISIBLE);
-        filterPanel.setVisibility(enable ? View.GONE : View.VISIBLE);
-        recycler.setVisibility(enable ? View.GONE : View.VISIBLE);
-        LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) videoFrame.getLayoutParams();
+        LinearLayout.LayoutParams panel = (LinearLayout.LayoutParams) rightPanel.getLayoutParams();
+        panel.weight = enable ? 1f : 6.6f;
+        rightPanel.setLayoutParams(panel);
+        LinearLayout.LayoutParams video = (LinearLayout.LayoutParams) videoFrame.getLayoutParams();
+        video.setMargins(enable ? 0 : dp(6), enable ? 0 : dp(6),
+                enable ? 0 : dp(6), enable ? 0 : dp(6));
+        videoFrame.setLayoutParams(video);
         if (enable) {
-            lp.height = 0;
-            lp.weight = 1;
-            lp.setMargins(0, 0, 0, 0);
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
             getWindow().getDecorView().setSystemUiVisibility(
                     View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
-            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
         } else {
-            lp.height = dp(210);
-            lp.weight = 0;
-            lp.setMargins(dp(12), dp(4), dp(12), dp(4));
             getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
             getWindow().getDecorView().setSystemUiVisibility(0);
-            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
         }
-        videoFrame.setLayoutParams(lp);
     }
 
     @Override
