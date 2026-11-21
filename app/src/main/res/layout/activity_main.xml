@@ -71,7 +71,6 @@
             android:background="#000000"
             app:use_controller="true"
             app:show_buffering="when_playing"
-            app:controller_auto_show="true"
             app:resize_mode="fit" />
         <TextView
             android:id="@+id/txtPlayerOverlay"
