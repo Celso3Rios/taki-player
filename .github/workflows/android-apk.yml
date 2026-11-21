@@ -2,9 +2,11 @@
 name: Compilar Taki Player APK
 
 on:
-  workflow_dispatch:
   push:
-    branches: [main, master]
+    branches:
+      - main
+      - master
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,8 +16,9 @@ jobs:
     name: Gerar APK Android
     runs-on: ubuntu-latest
     timeout-minutes: 35
+
     steps:
-      - name: Baixar projeto
+      - name: Baixar codigo do projeto
         uses: actions/checkout@v4
 
       - name: Configurar Java 17
@@ -24,24 +27,37 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Configurar SDK Android
-        uses: android-actions/setup-android@v3
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+          log-accepted-android-sdk-licenses: false
 
-      - name: Instalar plataforma Android 36
-        run: sdkmanager "platforms;android-36" "build-tools;35.0.0" "platform-tools"
+      - name: Instalar Android SDK 36
+        run: |
+          sdkmanager --install "platforms;android-36" "build-tools;35.0.0"
+          sdkmanager --list_installed
 
       - name: Configurar Gradle 8.13
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
 
-      - name: Executar testes de parser
+      - name: Verificar estrutura do projeto
+        run: |
+          test -f settings.gradle
+          test -f build.gradle
+          test -f app/build.gradle
+          test -f app/src/main/AndroidManifest.xml
+          echo "Estrutura do Taki Player encontrada."
+
+      - name: Testar leitor de listas M3U
         run: gradle --no-daemon :app:testDebugUnitTest
 
-      - name: Compilar APK instalável
+      - name: Compilar APK instalavel
         run: gradle --no-daemon :app:assembleDebug
 
-      - name: Disponibilizar APK para download
+      - name: Disponibilizar APK
         uses: actions/upload-artifact@v4
         with:
           name: Taki-Player-APK
