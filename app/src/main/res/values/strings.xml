@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Taki Player</string>
+    <string name="importar">IMPORTAR M3U</string>
+    <string name="search_hint">Buscar canal, filme ou episódio...</string>
+    <string name="empty">Importe sua lista M3U para começar.</string>
+    <string name="fullscreen">Tela cheia</string>
+    <string name="external">Abrir no VLC</string>
+</resources>
