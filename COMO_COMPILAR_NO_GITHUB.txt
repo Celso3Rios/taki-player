@@ -1,0 +1,15 @@
+TAKI PLAYER - APK PELO GITHUB
+
+1. Acesse https://github.com/new
+2. Crie o repositório taki-player (pode ser Private).
+3. Extraia o ZIP e envie o CONTEÚDO da pasta TakiPlayer_Android ao repositório.
+   Envie também a pasta .github; sem ela não haverá compilação automática.
+4. Confirme em Commit changes.
+5. Abra Actions > Compilar Taki Player APK > Run workflow.
+6. Na execução concluída, role até Artifacts e baixe Taki-Player-APK.
+7. Extraia app-debug.apk e instale no Android.
+8. No aplicativo, escolha IMPORTAR M3U e selecione o arquivo local.
+
+NUNCA envie sua playlist M3U para o repositório GitHub.
+
+O APK é feito pelo GitHub; este ZIP contém o código-fonte, não o APK.
